@@ -1,0 +1,1 @@
+Why might a background job silently stop processing new items after running for a few hours, with no crash or error logged?

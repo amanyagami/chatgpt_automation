@@ -61,8 +61,16 @@ def check_claude_cli():
     )
 
 
-def run_claude(question: str, cwd: str, model: str | None, permission_mode: str, timeout: int):
-    """Runs claude -p in stream-json mode and returns (events, raw_stdout, raw_stderr, returncode_or_None)."""
+def run_claude(
+    question: str, cwd: str, model: str | None, permission_mode: str, timeout: int,
+    resume_session_id: str | None = None, json_schema: dict | None = None,
+):
+    """Runs claude -p in stream-json mode and returns (events, raw_stdout, raw_stderr, returncode_or_None).
+
+    resume_session_id: continue an existing session (same context) instead of starting fresh.
+    json_schema: force structured output matching this JSON Schema — the final result's
+                 "result" field will be a JSON string (json.loads it) instead of free text.
+    """
     cmd = [
         "claude", "-p", question,
         "--permission-mode", permission_mode,
@@ -71,6 +79,10 @@ def run_claude(question: str, cwd: str, model: str | None, permission_mode: str,
     ]
     if model:
         cmd += ["--model", model]
+    if resume_session_id:
+        cmd += ["--resume", resume_session_id]
+    if json_schema:
+        cmd += ["--json-schema", json.dumps(json_schema)]
 
     try:
         proc = subprocess.run(
@@ -101,6 +113,14 @@ def extract_final_result(events):
         if event.get("type") == "result":
             return event.get("result", ""), bool(event.get("is_error")), event
     return None, True, None
+
+
+def extract_session_id(events):
+    """Returns the session_id from the 'system'/'init' event, or None if not found."""
+    for event in events:
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            return event.get("session_id")
+    return None
 
 
 def format_transcript(question: str, events, stderr: str, returncode, timed_out: bool) -> str:

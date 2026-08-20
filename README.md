@@ -1,15 +1,20 @@
 # chatgpt_automation
 
-Two question-in-a-file automations:
+Three question-in-a-file automations:
 
 - **[ask.bat](ask.bat)** / `ask_chatgpt.py` — asks **ChatGPT** (via a real
   Edge browser) → [question.txt](question.txt)
 - **[ask_claude.bat](ask_claude.bat)** / `ask_claude_code.py` — asks
   **Claude Code** (via the `claude` CLI, in a terminal) →
   [claude_question.txt](claude_question.txt)
+- **[ask_rca.bat](ask_rca.bat)** / `rca_loop.py` — **Claude Code
+  investigates, ChatGPT reviews, they go back and forth until both agree
+  it's done** → [rca_question.txt](rca_question.txt)
 
-Both follow the same pattern: edit the question file, double-click the
-`.bat`, get the answer appended below your question in that same file.
+The first two follow the same pattern: edit the question file, double-click
+the `.bat`, get the answer appended below your question in that same file.
+The third (`rca_loop.py`) builds on both of them for a multi-round
+investigate-then-review loop — see its own section below.
 
 ---
 
@@ -153,3 +158,68 @@ python ask_claude_code.py --permission-mode plan   # never actually execute, jus
 - If a run times out or crashes, `claude_question.txt` still gets a
   `[No result — ...]` note so you notice, and whatever did happen is in
   `claude_logs.txt`.
+
+---
+
+## ask_rca.bat — Claude Code investigates, ChatGPT reviews, repeat until both agree
+
+1. Reads the question from `rca_question.txt`.
+2. **Round 1:** Claude Code investigates it in `--dir` (default: this
+   folder) with the prompt *"\<question\>\n\nExplain the issue, DEEP dive and
+   RCA."* — responding in a structured format (`status`, `rca`,
+   `notes_for_reviewer`), so the loop can tell programmatically whether
+   Claude itself considers it done.
+3. Claude's RCA (plus a condensed, readable summary of which tools it used
+   — not the raw noisy transcript) is sent to ChatGPT for review, in the
+   **same browser tab for the whole run** (so ChatGPT keeps context of
+   earlier rounds without re-pasting everything). ChatGPT is instructed to
+   end its reply with `VERDICT: APPROVED` or `VERDICT: NEEDS_REVISION`.
+4. **If either side isn't satisfied:** ChatGPT's feedback is fed back to
+   Claude Code — same session, via `--resume`, so it keeps full context of
+   its own prior investigation — as the next instruction, and another round
+   starts.
+5. **Stops** when Claude reports `status: DONE` *and* ChatGPT says
+   `VERDICT: APPROVED` in the same round, or a safety cap is hit:
+   `--max-rounds` (default 5) or `--max-cost` (default $2, tracked from
+   Claude Code's real per-round cost).
+
+### Output layout
+
+```
+runs/<timestamp>-<question-slug>/
+  conversation.md        # readable, round-by-round narrative — read this one
+  round1_claude.jsonl     # raw Claude Code transcript, round 1
+  round1_chatgpt.txt       # raw ChatGPT reply, round 1
+  round2_claude.jsonl, round2_chatgpt.txt, ...
+```
+
+The final RCA (converged, or the last attempt if a cap was hit) is also
+appended to `rca_question.txt`, same convention as the other two scripts —
+plus a pointer to the full `conversation.md` for that run.
+
+### Usage
+
+```
+ask_rca.bat                                          # double-click, or run from a terminal
+python rca_loop.py                                   # same thing, directly
+python rca_loop.py myquestion.txt --dir "C:\path\to\project"
+python rca_loop.py --max-rounds 3 --max-cost 1.0      # tighter caps
+python rca_loop.py --model opus
+```
+
+### Notes
+
+- **Permissions**: same `--permission-mode bypassPermissions` default as
+  `ask_claude_code.py` — Claude Code has full, unattended tool access in
+  `--dir` for potentially several rounds. Only point it at a folder you
+  trust. See that script's section above for the full rationale.
+- **This loop makes real, separate API calls to Claude each round** — cost
+  is tracked and capped by `--max-cost`, but check the number feels right
+  for your use before leaving it unattended on a hard problem.
+- Two models reviewing each other can still disagree indefinitely on
+  genuinely ambiguous questions — that's exactly what `--max-rounds` is
+  for. If it hits the cap, `conversation.md` has the full back-and-forth so
+  you can see where it got stuck and take it from there yourself.
+- Reuses `ask_chatgpt.py`'s and `ask_claude_code.py`'s code directly (same
+  Edge profile, same `claude` CLI invocation) — the `--attach` /
+  `make_edge_debuggable.bat` option from the ChatGPT section works here too.
