@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 edge_profile/
 chatgpt_profile/
+claude_logs.txt
+work/
