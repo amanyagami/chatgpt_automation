@@ -13,12 +13,18 @@ with no args):
 Requires the `claude` CLI already installed and logged in (this just shells
 out to it — same as running `claude -p "..."` yourself in a terminal).
 
+VS Code: by default this passes --ide, so if you have VS Code open with the
+Claude Code extension (logged in), the session connects to it automatically
+— you'll see it work live in your editor. Harmless no-op if VS Code isn't
+open; pass --no-ide to force a fully headless run regardless.
+
 Usage:
     python ask_claude_code.py                        # uses ./claude_question.txt
     python ask_claude_code.py myquestion.txt          # use a different file
     python ask_claude_code.py --dir "C:\\path\\to\\project"   # run in a different project
     python ask_claude_code.py --model sonnet          # pin a model
     python ask_claude_code.py --timeout 600           # allow longer runs (default 300s)
+    python ask_claude_code.py --no-ide                # don't connect to VS Code even if it's open
 
 Permissions:
     By default this runs with --permission-mode bypassPermissions, so Claude
@@ -63,13 +69,16 @@ def check_claude_cli():
 
 def run_claude(
     question: str, cwd: str, model: str | None, permission_mode: str, timeout: int,
-    resume_session_id: str | None = None, json_schema: dict | None = None,
+    resume_session_id: str | None = None, json_schema: dict | None = None, use_ide: bool = True,
 ):
     """Runs claude -p in stream-json mode and returns (events, raw_stdout, raw_stderr, returncode_or_None).
 
     resume_session_id: continue an existing session (same context) instead of starting fresh.
     json_schema: force structured output matching this JSON Schema — the final result's
                  "result" field will be a JSON string (json.loads it) instead of free text.
+    use_ide: pass --ide, so the session connects to a running VS Code (with the Claude Code
+             extension) if exactly one is available — you'll see it work live in the editor.
+             Harmless no-op if no IDE is open; pass False to force a fully headless run.
     """
     cmd = [
         "claude", "-p", question,
@@ -83,6 +92,8 @@ def run_claude(
         cmd += ["--resume", resume_session_id]
     if json_schema:
         cmd += ["--json-schema", json.dumps(json_schema)]
+    if use_ide:
+        cmd += ["--ide"]
 
     try:
         proc = subprocess.run(
@@ -206,6 +217,11 @@ def main():
         help="Permission mode passed to claude (default: bypassPermissions — no prompts, since this runs unattended).",
     )
     parser.add_argument("--timeout", type=int, default=300, help="Seconds to allow the run before killing it (default: 300).")
+    parser.add_argument(
+        "--no-ide", action="store_true",
+        help="Don't connect to an open VS Code (Claude Code extension) — force a fully headless run. "
+             "By default it connects automatically if VS Code with the extension is open (harmless no-op if not).",
+    )
     args = parser.parse_args()
 
     check_claude_cli()
@@ -214,7 +230,7 @@ def main():
     print(f"Asking Claude Code (cwd={args.dir})...")
     events, stdout, stderr, returncode = run_claude(
         question, cwd=args.dir, model=args.model,
-        permission_mode=args.permission_mode, timeout=args.timeout,
+        permission_mode=args.permission_mode, timeout=args.timeout, use_ide=not args.no_ide,
     )
     timed_out = returncode is None
 

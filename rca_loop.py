@@ -214,6 +214,11 @@ def main():
     parser.add_argument("--chatgpt-timeout", type=int, default=180, help="Seconds to wait for each ChatGPT response (default: 180).")
     parser.add_argument("--attach", action="store_true", help="Attach to your already-open Edge instead of the separate automation profile (see README).")
     parser.add_argument("--headless", action="store_true", help="Run ChatGPT's browser with no visible window.")
+    parser.add_argument(
+        "--no-ide", action="store_true",
+        help="Don't connect Claude Code to an open VS Code extension — force fully headless. "
+             "By default it connects automatically if VS Code with the Claude Code extension is open.",
+    )
     args = parser.parse_args()
 
     cc.check_claude_cli()
@@ -265,7 +270,7 @@ def main():
             events, stdout, stderr, returncode = cc.run_claude(
                 claude_prompt, cwd=args.dir, model=args.model,
                 permission_mode=args.permission_mode, timeout=args.claude_timeout,
-                resume_session_id=session_id, json_schema=RCA_SCHEMA,
+                resume_session_id=session_id, json_schema=RCA_SCHEMA, use_ide=not args.no_ide,
             )
             timed_out = returncode is None
             answer, is_error, result_event = cc.extract_final_result(events)

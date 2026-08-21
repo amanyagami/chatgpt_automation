@@ -189,12 +189,12 @@ def build_test_ship_prompt() -> str:
     )
 
 
-def run_claude_turn(prompt, cwd, model, permission_mode, timeout, session_id, schema):
+def run_claude_turn(prompt, cwd, model, permission_mode, timeout, session_id, schema, use_ide=True):
     """Runs one claude turn (fresh or --resume'd) and returns
     (events, answer_text, is_error, timed_out, new_session_id, cost_usd)."""
     events, stdout, stderr, returncode = cc.run_claude(
         prompt, cwd=cwd, model=model, permission_mode=permission_mode, timeout=timeout,
-        resume_session_id=session_id, json_schema=schema,
+        resume_session_id=session_id, json_schema=schema, use_ide=use_ide,
     )
     timed_out = returncode is None
     answer, is_error, result_event = cc.extract_final_result(events)
@@ -220,7 +220,7 @@ def run_gated_phase(
     for round_i in range(1, max_rounds + 1):
         events, answer, is_error, timed_out, session_id, cost = run_claude_turn(
             claude_prompt, args.dir, args.model, args.permission_mode, args.claude_timeout,
-            session_id, schema,
+            session_id, schema, use_ide=not args.no_ide,
         )
         total_cost += cost
         data = parse_json_field(answer, is_error, fallback_key=output_key)
@@ -285,6 +285,11 @@ def main():
     parser.add_argument("--chatgpt-timeout", type=int, default=180, help="Seconds to wait for each ChatGPT response (default: 180).")
     parser.add_argument("--attach", action="store_true", help="Attach to your already-open Edge instead of the separate automation profile (see README).")
     parser.add_argument("--headless", action="store_true", help="Run ChatGPT's browser with no visible window.")
+    parser.add_argument(
+        "--no-ide", action="store_true",
+        help="Don't connect Claude Code to an open VS Code extension — force fully headless. "
+             "By default it connects automatically if VS Code with the Claude Code extension is open.",
+    )
     args = parser.parse_args()
 
     cc.check_claude_cli()
@@ -366,7 +371,7 @@ def main():
         print("\n=== PHASE 3: TEST & SHIP ===")
         events, answer, is_error, timed_out, session_id, cost3 = run_claude_turn(
             build_test_ship_prompt(), args.dir, args.model, args.permission_mode,
-            args.test_ship_timeout, session_id, TEST_SHIP_SCHEMA,
+            args.test_ship_timeout, session_id, TEST_SHIP_SCHEMA, use_ide=not args.no_ide,
         )
         record["total_cost_usd"] += cost3
         data = parse_json_field(answer, is_error, fallback_key="summary")

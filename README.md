@@ -144,6 +144,19 @@ platform installer from that page) and logged in — same as if you were
 going to type `claude` in a terminal yourself. The script checks for this
 and tells you exactly what's missing if not.
 
+### VS Code integration
+
+By default every run passes `--ide`: if you have **VS Code open with the
+Claude Code extension** (logged in), the session automatically connects to
+it — you'll see the work happen live in your editor (file edits, etc.),
+same as using the extension directly, just driven by this script instead
+of you typing. If VS Code isn't open, this is a harmless no-op — confirmed
+by testing `--ide` with no IDE present, it just runs normally. Pass
+`--no-ide` to force a fully headless run regardless.
+
+This applies to `rca_loop.py` and `dev_loop.py` too — same flag, same
+behavior, since they all share this same underlying `run_claude()` call.
+
 ### Usage
 
 ```
@@ -154,6 +167,7 @@ python ask_claude_code.py --dir "C:\path\to\project"   # run it against a differ
 python ask_claude_code.py --model sonnet      # pin a model
 python ask_claude_code.py --timeout 600       # allow longer runs (default 300s)
 python ask_claude_code.py --permission-mode plan   # never actually execute, just plan
+python ask_claude_code.py --no-ide            # don't connect to VS Code even if it's open
 ```
 
 ### Notes
