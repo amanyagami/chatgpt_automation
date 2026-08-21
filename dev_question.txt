@@ -1,0 +1,1 @@
+Add input validation to the user signup endpoint so it rejects malformed emails and short passwords.

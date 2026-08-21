@@ -1,6 +1,6 @@
 # chatgpt_automation
 
-Three question-in-a-file automations:
+Four question-in-a-file automations:
 
 - **[ask.bat](ask.bat)** / `ask_chatgpt.py` — asks **ChatGPT** (via a real
   Edge browser) → [question.txt](question.txt)
@@ -10,11 +10,16 @@ Three question-in-a-file automations:
 - **[ask_rca.bat](ask_rca.bat)** / `rca_loop.py` — **Claude Code
   investigates, ChatGPT reviews, they go back and forth until both agree
   it's done** → [rca_question.txt](rca_question.txt)
+- **[ask_dev.bat](ask_dev.bat)** / `dev_loop.py` — **Plan → Implement →
+  Test & Ship**: Claude Code plans it, ChatGPT reviews the plan; Claude
+  implements it, ChatGPT reviews the implementation; Claude tests, fixes,
+  and opens a PR — all logged to one JSON file →
+  [dev_question.txt](dev_question.txt)
 
 The first two follow the same pattern: edit the question file, double-click
 the `.bat`, get the answer appended below your question in that same file.
-The third (`rca_loop.py`) builds on both of them for a multi-round
-investigate-then-review loop — see its own section below.
+The last two build on them for multi-round loops — see their own sections
+below.
 
 ---
 
@@ -223,3 +228,108 @@ python rca_loop.py --model opus
 - Reuses `ask_chatgpt.py`'s and `ask_claude_code.py`'s code directly (same
   Edge profile, same `claude` CLI invocation) — the `--attach` /
   `make_edge_debuggable.bat` option from the ChatGPT section works here too.
+
+---
+
+## ask_dev.bat — Plan → Implement → Test & Ship
+
+A three-phase loop, everything recorded in **one JSON file** per question.
+
+### ⚠️ Read this before using
+
+Phase 3 makes **real, outward, hard-to-reverse changes**: it commits, pushes
+a branch, and **opens a live pull request, fully unattended**, using the
+same `bypassPermissions` full tool access as the rest of this project. Only
+point `--dir` at a repo/branch you are genuinely comfortable with an AI
+pushing to and opening PRs against on its own. There is no pause before
+this happens by default.
+
+### How it works
+
+1. **PLAN** (`claude_question.txt` → Claude): *"\<question\>\n\nPlan for
+   this, deep dive, and review if the plan is SOTA, optimal, complete, and
+   reliable."* → ChatGPT reviews, replying `PLAN READY` or
+   `PLAN NOT READY` (+ feedback). If not ready, the feedback goes back to
+   Claude (same session, via `--resume`) to revise. Repeats until READY or
+   `--max-plan-rounds` (default 5).
+2. **IMPLEMENT**: Claude gets a short *"Do it step by step with
+   checkpoints"* (the approved plan is already in its session context — no
+   need to re-paste it). ChatGPT reviews progress, replying
+   `IMPLEMENTATION DONE` or `IMPLEMENTATION NOT DONE`. Same feedback loop
+   as planning, until DONE or `--max-impl-rounds` (default 5).
+3. **TEST & SHIP**: one long, autonomous Claude turn (not orchestrator-gated
+   — passing tests is self-verifiable, it doesn't need ChatGPT's opinion).
+   Claude is told to run the tests, fix and re-test until they pass (or
+   explain why a failure is pre-existing), then commit, push, and
+   `gh pr create`.
+
+Global safety net: `--max-cost` (default $5) stops the loop at any point if
+cumulative Claude Code spend crosses it, before starting another round.
+
+### Why turn-by-turn instead of one giant upfront prompt
+
+The orchestrator (this script) tracks which phase it's in — not the model.
+Each turn gets a short, explicit, self-contained instruction for exactly
+the current step, leaning on `--resume` for memory instead of re-pasting
+context. This is both cheaper and more reliable than one big prompt
+up-front describing the whole pipeline and trusting the model to correctly
+self-navigate phase transitions many turns later. The one exception is
+Phase 3, which *is* one long autonomous turn — because Claude Code already
+natively loops fix→test→retest within a session, and the "gate" there
+(tests passing) doesn't need another model's judgment the way "is this
+plan good?" does.
+
+### Output: one JSON file
+
+`runs/<timestamp>-<question-slug>.json`:
+
+```json
+{
+  "question": "...",
+  "target_dir": "...",
+  "turns": [
+    {"turn": 1, "phase": "planning", "actor": "claude",
+     "prompt": "...", "final_output": "<the plan>",
+     "full_logs": [ /* real nested JSON — parsed Claude transcript events for this turn */ ],
+     "session_id": "...", "cost_usd": 0.21},
+    {"turn": 2, "phase": "planning", "actor": "chatgpt",
+     "prompt": "...", "final_output": "...", "verdict": "NOT_READY"},
+    { "...": "more turns, alternating claude/chatgpt, through implementing" },
+    {"turn": 9, "phase": "testing", "actor": "claude",
+     "final_output": "...", "status": "PR_RAISED", "pr_url": "https://github.com/.../pull/42"}
+  ],
+  "total_cost_usd": 1.83,
+  "outcome": "pr_raised",
+  "pr_url": "https://github.com/.../pull/42"
+}
+```
+
+`outcome` is one of: `pr_raised`, `blocked` (tests couldn't be made to
+pass, or PR creation failed — see the last turn's `final_output`), `error`
+(a Claude run crashed/timed out), `max_cost`, `max_planning_rounds`,
+`max_implementing_rounds`.
+
+### Usage
+
+```
+ask_dev.bat                                          # double-click, or run from a terminal
+python dev_loop.py                                   # same thing, directly
+python dev_loop.py myquestion.txt --dir "C:\path\to\project"
+python dev_loop.py --max-plan-rounds 3 --max-impl-rounds 3
+python dev_loop.py --max-cost 2.0
+python dev_loop.py --model opus
+```
+
+### Notes
+
+- Requires `gh` (GitHub CLI) installed and authenticated, in addition to
+  `claude` and Edge — needed for the PR step in Phase 3.
+- `runs/*.json` files can get large — full Claude transcripts (including
+  every tool call and thinking block) are embedded per turn, by design, so
+  the whole history is in one place. Not committed to git (`.gitignore`).
+- If a phase never converges, ChatGPT's actual feedback for every round is
+  still in the JSON — read the last few turns to see exactly where it got
+  stuck.
+- This is a different tool from `rca_loop.py`, not a replacement — use
+  `ask_rca.bat` when you just want a reviewed explanation/investigation,
+  and `ask_dev.bat` when you want actual code changes shipped as a PR.
